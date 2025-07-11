@@ -65,8 +65,6 @@ def plot_seasonal_contrast_bar(df, lake_name, buffer_target=1000):
     return fig
 
 if __name__ == '__main__':
-    # Example usage for testing the module
-    # This requires the other modules to generate a sample DataFrame
     from data_processing import get_data_for_location
     from analysis import run_analysis
 

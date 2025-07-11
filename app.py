@@ -2,6 +2,7 @@
 import streamlit as st
 from geopy.geocoders import Nominatim
 import pandas as pd
+import time
 
 # Import our custom modules
 from data_processing import get_data_for_location
@@ -28,7 +29,7 @@ def search_location(location_name):
     return None, None
 
 # --- Main App UI ---
-st.title("🛰️ Lake NDVI Trend Analysis")
+st.title("Lake NDVI Trend Analysis")
 st.markdown("""
 This app analyzes the vegetation trend (NDVI) in concentric buffer zones around a chosen lake. 
 It uses Sentinel-2 satellite data from the Microsoft Planetary Computer.
@@ -36,7 +37,6 @@ It uses Sentinel-2 satellite data from the Microsoft Planetary Computer.
 
 # --- User Input ---
 st.sidebar.header("Location Input")
-# Pre-defined list of lakes for user convenience
 LAKE_OPTIONS = {
     "Pichola, Udaipur, India": (24.572, 73.679),
     "Chilika, Odisha, India": (19.5, 85.3),
@@ -64,7 +64,6 @@ else:
     lake_name = selection.split(',')[0]
     st.sidebar.info(f"Using coordinates for {lake_name}: ({lat}, {lon})")
 
-# Analysis parameters
 st.sidebar.header("Analysis Parameters")
 BUFFER_DISTS = st.sidebar.multiselect(
     "Select buffer distances (meters)",
@@ -74,46 +73,58 @@ BUFFER_DISTS = st.sidebar.multiselect(
 
 # --- Analysis Execution ---
 if st.sidebar.button("Run Analysis", type="primary") and lat and lon:
-    with st.spinner(f"Running full analysis for {lake_name}... This may take several minutes."):
+    st.subheader("1. Data Processing")
+    
+    # --- Progress Bar and Status Text ---
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    def progress_callback(value, text):
+        # Clamp value between 0 and 100
+        value = max(0, min(100, value))
+        progress_bar.progress(value)
+        status_text.info(text)
+
+    # --- Call the data processing function with the callback ---
+    ndvi_data, raster_profile = get_data_for_location(
+        lon, lat, progress_callback=progress_callback
+    )
+
+    if ndvi_data is not None:
+        progress_bar.progress(100)
+        status_text.success("In-memory NDVI data composite created successfully.")
+        time.sleep(2) # Give user time to read the success message
+        status_text.empty() # Clear the status text
+        progress_bar.empty() # Clear the progress bar
+
+        # 2. Analysis
+        st.subheader("2. Trend Analysis")
+        with st.spinner("Calculating buffer zones and temporal trends..."):
+            results_df = run_analysis(ndvi_data, raster_profile, lon, lat, BUFFER_DISTS)
+        st.success("Trend analysis complete.")
         
-        # 1. Data Processing
-        st.subheader("1. Data Processing")
-        with st.expander("Show Data Processing Logs", expanded=True):
-            with st.spinner("Fetching data from Planetary Computer..."):
-                ndvi_data, raster_profile = get_data_for_location(lon, lat)
+        # 3. Display Results
+        st.subheader("3. Results")
+        st.dataframe(results_df)
+        
+        # 4. Visualization
+        st.subheader("4. Visualizations")
+        with st.spinner("Generating plots..."):
+            fig_decay = plot_distance_decay(results_df, lake_name)
+            fig_bar = plot_seasonal_contrast_bar(results_df, lake_name)
 
-        if ndvi_data is not None:
-            st.success("✅ In-memory NDVI data composite created successfully.")
-            
-            # 2. Analysis
-            st.subheader("2. Trend Analysis")
-            with st.expander("Show Analysis Logs", expanded=True):
-                with st.spinner("Calculating buffer zones and temporal trends..."):
-                    results_df = run_analysis(ndvi_data, raster_profile, lon, lat, BUFFER_DISTS)
-            
-            st.success("✅ Trend analysis complete.")
-            
-            # 3. Display Results
-            st.subheader("3. Results")
-            st.dataframe(results_df)
-            
-            # 4. Visualization
-            st.subheader("4. Visualizations")
-            
-            with st.spinner("Generating plots..."):
-                fig_decay = plot_distance_decay(results_df, lake_name)
-                fig_bar = plot_seasonal_contrast_bar(results_df, lake_name)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.pyplot(fig_decay)
+        with col2:
+            if fig_bar:
+                st.pyplot(fig_bar)
+            else:
+                st.warning("Could not generate seasonal contrast plot (missing data for 1000m buffer).")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.pyplot(fig_decay)
-            with col2:
-                if fig_bar:
-                    st.pyplot(fig_bar)
-                else:
-                    st.warning("Could not generate seasonal contrast plot (missing data for 1000m buffer).")
-
-        else:
-            st.error("❌ Analysis failed. Could not retrieve or process data for the selected location.")
+    else:
+        st.error("Analysis failed. Could not retrieve or process data for the selected location.")
+        progress_bar.empty()
+        status_text.empty()
 else:
     st.info("Select a location and click 'Run Analysis' to begin.")

@@ -43,8 +43,6 @@ def create_buffer_zones(lon, lat, buffer_distances_m, target_crs):
     # Create a GeoDataFrame for the central point
     pt_wgs = gpd.GeoDataFrame(geometry=[Point(lon, lat)], crs="EPSG:4326")
     
-    # Project to a suitable UTM zone for metric buffering (e.g., UTM 44N)
-    # A more robust solution would dynamically find the UTM zone.
     pt_utm = pt_wgs.to_crs(epsg=32644)
     
     buffers_reprojected = []
